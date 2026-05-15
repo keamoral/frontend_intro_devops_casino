@@ -10,14 +10,12 @@ COPY . .
 RUN npm run build
 
 # ── Etapa 2: runtime ──────────────────────────────────────────
-FROM nginxinc/nginx-unprivileged:alpine AS runtime
+FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
 
-COPY --from=builder /app/dist/casino-frontend/browser /usr/share/nginx/html
+COPY --from=builder --chown=nginx:nginx /app/dist/casino-frontend/browser/ /usr/share/nginx/html/
 
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-EXPOSE 8080
+# ← Va a templates/ para que envsubst procese ${BACKEND_HOST}
+COPY --chown=nginx:nginx nginx.conf /etc/nginx/templates/default.conf.template
 
 USER nginx
-
-CMD ["nginx", "-g", "daemon off;"]
+EXPOSE 8080
