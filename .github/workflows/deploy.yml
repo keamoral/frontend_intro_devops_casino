@@ -43,4 +43,5 @@ jobs:
               --name casino-frontend \
               --restart always \
               -p 80:8080 \
+              -e BACKEND_HOST=${{ secrets.BACKEND_HOST }} \
               ${{ secrets.DOCKERHUB_USERNAME }}/casino-frontend:latest
