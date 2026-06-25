@@ -1,9 +1,15 @@
-name: CI/CD Frontend VidalCasino
+name: CI/CD — casino-frontend
 
 on:
   push:
-    branches:
-      - deploy
+    branches: [deploy]
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REGISTRY: 033894660426.dkr.ecr.us-east-1.amazonaws.com
+  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+  EKS_CLUSTER: ${{ secrets.EKS_CLUSTER }}
+  IMAGE_TAG: ${{ github.sha }}
 
 jobs:
   build-push-deploy:
@@ -13,35 +19,29 @@ jobs:
       - name: Checkout código
         uses: actions/checkout@v4
 
-      - name: Login a Docker Hub
-        uses: docker/login-action@v3
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Build y push imagen frontend
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/casino-frontend:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/casino-frontend:v1.0.0
-            ${{ secrets.DOCKERHUB_USERNAME }}/casino-frontend:${{ github.sha }}
+      - name: Login a Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Deploy en EC2 frontend
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.EC2_FRONTEND_HOST }}
-          username: ec2-user
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/casino-frontend:latest
-            docker stop casino-frontend || true
-            docker rm casino-frontend || true
-            docker run -d \
-              --name casino-frontend \
-              --restart always \
-              -p 80:8080 \
-              -e BACKEND_HOST=${{ secrets.BACKEND_HOST }} \
-              ${{ secrets.DOCKERHUB_USERNAME }}/casino-frontend:latest
+      - name: Build, tag y push de la imagen
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Actualizar kubeconfig
+        run: |
+          aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER
+
+      - name: Deploy en EKS
+        run: |
+          kubectl set image deployment/casino-frontend casino-frontend=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          kubectl rollout status deployment/casino-frontend
